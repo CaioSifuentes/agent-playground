@@ -1,0 +1,25 @@
+# Secrets and local-only files
+.env
+.env.*
+!.env.example
+certificate.pem
+*.pem
+*.key
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local artifacts
+*.zip
+*.log
+.DS_Store
+Thumbs.db
+
+# Docs
+docs/**

@@ -1,0 +1,1 @@
+"""Agent Playground application package."""

@@ -1,0 +1,9 @@
+# Files that must not be uploaded to Square Cloud.
+# `certificate.pem` is intentionally NOT ignored: the managed MongoDB TLS
+# connection needs it inside the deployment ZIP.
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+tests/
+*.pyc
