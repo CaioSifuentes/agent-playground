@@ -10,13 +10,13 @@ const API = {
   logout: "/api/dashboard/logout",
   agents: "/api/dashboard/agents",
   agentTasks: (id) => `/api/dashboard/agents/${encodeURIComponent(id)}/tasks`,
+  dashboardDisconnect: (id) =>
+    `/api/dashboard/agents/${encodeURIComponent(id)}/disconnect`,
   activity: "/api/dashboard/activity?limit=300",
   events: "/api/dashboard/events",
   connect: (name) => `/connect/${encodeURIComponent(name)}`,
-  disconnect: "/disconnect",
   tasks: "/api/tasks",
   task: (id) => `/api/tasks/${encodeURIComponent(id)}`,
-  complete: (id) => `/api/tasks/${encodeURIComponent(id)}/complete`,
 };
 
 const CONNECTIONS_KEY = "agent-playground.connections.v1";
@@ -24,7 +24,7 @@ const SELECTED_KEY = "agent-playground.selected.v1";
 
 const STATUS_LABELS = {
   pending: "Pending",
-  in_progress: "In progress",
+  in_progress: "In Progress",
   completed: "Completed",
 };
 
@@ -33,6 +33,15 @@ const PRIORITY_LABELS = {
   medium: "Medium",
   high: "High",
 };
+
+const KANBAN_COLUMNS = [
+  { status: "pending", label: "Pending" },
+  { status: "in_progress", label: "In Progress" },
+  { status: "completed", label: "Completed" },
+];
+
+const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+const CARD_DESCRIPTION_LIMIT = 256;
 
 const state = {
   dashboardActive: false,
@@ -51,6 +60,7 @@ const state = {
   modalHandler: null,
   modalFields: [],
   modalBusy: false,
+  detailTaskId: null,
 };
 
 const dom = {};
@@ -315,12 +325,25 @@ function cacheDom() {
   dom.modalSubmit = byId("modal-submit");
   dom.modalCancel = byId("modal-cancel");
   dom.modalClose = byId("modal-close");
+  dom.taskDetailBackdrop = byId("task-detail-backdrop");
+  dom.taskDetailTitle = byId("task-detail-title");
+  dom.taskDetailBadges = byId("task-detail-badges");
+  dom.taskDetailId = byId("task-detail-id");
+  dom.taskDetailDescription = byId("task-detail-description");
+  dom.taskDetailCreated = byId("task-detail-created");
+  dom.taskDetailUpdated = byId("task-detail-updated");
+  dom.taskDetailReadonly = byId("task-detail-readonly");
+  dom.taskDetailEdit = byId("task-detail-edit");
+  dom.taskDetailDelete = byId("task-detail-delete");
+  dom.taskDetailClose = byId("task-detail-close");
+  dom.taskDetailFooterClose = byId("task-detail-footer-close");
   dom.toastRegion = byId("toast-region");
 }
 
 function showLogin(message = "") {
   state.dashboardActive = false;
   closeEvents();
+  closeTaskDetail();
   dom.appView.classList.add("hidden");
   dom.loginView.classList.remove("hidden");
   dom.loginError.textContent = message;
@@ -409,6 +432,7 @@ async function refreshAgents() {
       state.selectedId = null;
       sessionStorage.removeItem(SELECTED_KEY);
       state.tasks = [];
+      closeTaskDetail();
     }
 
     renderAgentList();
@@ -480,6 +504,7 @@ function renderAgentList() {
 }
 
 async function selectAgent(id, { fetchTasks = true } = {}) {
+  closeTaskDetail();
   if (!id) {
     state.selectedId = null;
     state.tasks = [];
@@ -524,9 +549,15 @@ async function loadTasks() {
       : await api(API.agentTasks(id));
     if (state.selectedId !== id) return;
     state.tasks = Array.isArray(data.tasks) ? data.tasks : [];
+    if (state.detailTaskId) {
+      const detailTask = state.tasks.find((task) => task.id === state.detailTaskId);
+      if (detailTask) renderTaskDetail(detailTask);
+      else closeTaskDetail();
+    }
   } catch (error) {
     if (error.status === 401) {
       if (usingAgentApi) {
+        closeTaskDetail();
         forgetConnection(id);
         toast(
           "This connection expired or was revoked. Create a new connection to keep editing.",
@@ -592,7 +623,7 @@ function renderHeader() {
   dom.manageBadge.classList.toggle("pill-manage", manageable);
   dom.manageBadge.classList.toggle("pill-readonly", !manageable);
 
-  dom.disconnectBtn.classList.toggle("hidden", !manageable);
+  dom.disconnectBtn.classList.remove("hidden");
   dom.readonlyNote.classList.toggle("hidden", manageable);
 
   dom.newTaskBtn.disabled = !manageable;
@@ -655,121 +686,152 @@ function renderTasks() {
     return;
   }
 
-  const manageable = Boolean(managedConnection(agent.connection_id));
-
-  if (!state.tasks.length) {
-    emptyState(dom.tasksContainer, {
-      title: "No tasks in this environment",
-      message: manageable
-        ? "Create the first task for this agent. API calls from external tools will appear here in real time."
-        : "This environment has no tasks yet. External agents can create tasks through the API.",
-      actionLabel: manageable ? "New task" : null,
-      onAction: manageable ? () => openTaskModal(null) : null,
-    });
-    return;
-  }
-
   const fragment = document.createDocumentFragment();
-  for (const task of state.tasks) {
-    fragment.append(taskCard(task, manageable));
+
+  for (const column of KANBAN_COLUMNS) {
+    const columnTasks = state.tasks
+      .filter((task) => task.status === column.status)
+      .sort(compareTasks);
+
+    const columnEl = h("section", "kanban-column");
+    columnEl.dataset.status = column.status;
+    columnEl.setAttribute("aria-label", `${column.label} tasks`);
+
+    const head = h("header", "kanban-head");
+    const titleWrap = h("div", "kanban-title");
+    titleWrap.append(
+      h("span", `kanban-dot ${column.status}`),
+      h("h3", null, column.label)
+    );
+    head.append(titleWrap, h("span", "kanban-count", String(columnTasks.length)));
+    columnEl.append(head);
+
+    const list = h("div", "kanban-cards");
+    if (columnTasks.length) {
+      for (const task of columnTasks) list.append(taskCard(task));
+    } else {
+      list.append(h("div", "kanban-empty", "No tasks in this stage."));
+    }
+    columnEl.append(list);
+    fragment.append(columnEl);
   }
+
   dom.tasksContainer.append(fragment);
 }
 
-function taskCard(task, manageable) {
-  const card = h("article", `task-card status-${task.status}`);
+function compareTasks(a, b) {
+  const priority = (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9);
+  if (priority !== 0) return priority;
+  return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+}
+
+function previewDescription(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "No description.";
+  if (normalized.length <= CARD_DESCRIPTION_LIMIT) return normalized;
+  return `${normalized.slice(0, CARD_DESCRIPTION_LIMIT).trimEnd()}...`;
+}
+
+function taskCard(task) {
+  const card = h("article", "task-card");
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  card.setAttribute("aria-label", `Open task: ${task.title}`);
 
   const head = h("div", "task-card-head");
   head.append(h("h3", "task-title", task.title));
-  head.append(h("span", "task-id", `#${shortId(task.id)}`));
+  head.append(
+    h(
+      "span",
+      `task-priority priority-${task.priority}`,
+      PRIORITY_LABELS[task.priority] || task.priority
+    )
+  );
   card.append(head);
 
-  const description = (task.description || "").trim();
+  const description = previewDescription(task.description);
   card.append(
     h(
       "p",
-      `task-desc${description ? "" : " is-empty"}`,
-      description || "No description."
+      `task-desc${description === "No description." ? " is-empty" : ""}`,
+      description
     )
   );
 
-  const badges = h("div", "badges");
-  badges.append(
-    h("span", `badge priority-${task.priority}`, PRIORITY_LABELS[task.priority] || task.priority),
-    h("span", `badge status-${task.status}`, STATUS_LABELS[task.status] || task.status)
-  );
-  card.append(badges);
+  const open = () => openTaskDetail(task);
+  card.addEventListener("click", open);
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      open();
+    }
+  });
 
-  const dates = h("p", "task-dates");
-  dates.append(
-    h("span", null, `Created ${formatDateTime(task.created_at)}`),
-    document.createElement("br"),
-    h("span", null, `Updated ${formatDateTime(task.updated_at)}`)
-  );
-  card.append(dates);
-
-  const foot = h("div", "task-card-foot");
-
-  if (!manageable) {
-    foot.append(h("span", "task-readonly", "Read-only environment"));
-    card.append(foot);
-    return card;
-  }
-
-  const controls = h("div", "task-controls");
-  controls.append(
-    compactSelect("Status", ["pending", "in_progress", "completed"], task.status, STATUS_LABELS, async (value) => {
-      if (value === task.status) return;
-      await patchTask(task, { status: value });
-    })
-  );
-  controls.append(
-    compactSelect("Priority", ["low", "medium", "high"], task.priority, PRIORITY_LABELS, async (value) => {
-      if (value === task.priority) return;
-      await patchTask(task, { priority: value });
-    })
-  );
-
-  const actions = h("div", "task-actions");
-  if (task.status !== "completed") {
-    const complete = h("button", "task-btn is-complete", "Complete");
-    complete.type = "button";
-    complete.addEventListener("click", () => completeTask(task));
-    actions.append(complete);
-  }
-  const edit = h("button", "task-btn", "Edit");
-  edit.type = "button";
-  edit.addEventListener("click", () => openTaskModal(task));
-  actions.append(edit);
-
-  const remove = h("button", "task-btn is-danger", "Delete");
-  remove.type = "button";
-  remove.addEventListener("click", () => deleteTask(task));
-  actions.append(remove);
-
-  foot.append(controls, actions);
-  card.append(foot);
   return card;
 }
 
-function compactSelect(label, values, current, labels, onChange) {
-  const wrap = h("label", "compact-field");
-  wrap.append(h("span", null, label));
-  const select = h("select");
-  for (const value of values) {
-    select.append(makeOption(value, labels[value] || value, value === current));
+function openTaskDetail(task) {
+  const current = state.tasks.find((item) => item.id === task.id) || task;
+  state.detailTaskId = current.id;
+  renderTaskDetail(current);
+  dom.taskDetailBackdrop.classList.remove("hidden");
+  window.setTimeout(() => dom.taskDetailClose.focus(), 40);
+}
+
+function renderTaskDetail(task) {
+  const manageable = Boolean(managedConnection(state.selectedId));
+
+  dom.taskDetailTitle.textContent = task.title;
+  dom.taskDetailBadges.replaceChildren(
+    h(
+      "span",
+      `task-priority priority-${task.priority}`,
+      PRIORITY_LABELS[task.priority] || task.priority
+    ),
+    h(
+      "span",
+      `badge status-${task.status}`,
+      STATUS_LABELS[task.status] || task.status
+    )
+  );
+
+  dom.taskDetailId.textContent = `ID: ${task.id}`;
+
+  const description = (task.description || "").trim();
+  dom.taskDetailDescription.textContent = description || "No description.";
+  dom.taskDetailDescription.classList.toggle("is-empty", !description);
+
+  dom.taskDetailCreated.textContent = formatDateTime(task.created_at);
+  dom.taskDetailUpdated.textContent = formatDateTime(task.updated_at);
+
+  dom.taskDetailEdit.classList.toggle("hidden", !manageable);
+  dom.taskDetailDelete.classList.toggle("hidden", !manageable);
+  dom.taskDetailReadonly.classList.toggle("hidden", manageable);
+}
+
+function closeTaskDetail() {
+  if (!dom.taskDetailBackdrop) return;
+  dom.taskDetailBackdrop.classList.add("hidden");
+  state.detailTaskId = null;
+}
+
+function editTaskFromDetail() {
+  const task = state.tasks.find((item) => item.id === state.detailTaskId);
+  if (!task) {
+    closeTaskDetail();
+    return;
   }
-  select.addEventListener("change", async () => {
-    const next = select.value;
-    select.disabled = true;
-    try {
-      await onChange(next);
-    } finally {
-      select.disabled = false;
-    }
-  });
-  wrap.append(select);
-  return wrap;
+  closeTaskDetail();
+  openTaskModal(task);
+}
+
+async function deleteTaskFromDetail() {
+  const task = state.tasks.find((item) => item.id === state.detailTaskId);
+  if (!task) {
+    closeTaskDetail();
+    return;
+  }
+  if (await deleteTask(task)) closeTaskDetail();
 }
 
 function replaceTask(updated) {
@@ -781,43 +843,10 @@ function replaceTask(updated) {
   updateCounts();
 }
 
-async function patchTask(task, changes) {
-  const connection = managedConnection(state.selectedId);
-  if (!connection) {
-    toast("This environment is read-only in this browser.", "error");
-    return;
-  }
-  try {
-    const updated = await api(API.task(task.id), {
-      method: "PATCH",
-      body: changes,
-      token: connection.token,
-    });
-    replaceTask(updated);
-  } catch (error) {
-    handleAgentError(error);
-  }
-}
-
-async function completeTask(task) {
-  const connection = managedConnection(state.selectedId);
-  if (!connection) return;
-  try {
-    const updated = await api(API.complete(task.id), {
-      method: "POST",
-      token: connection.token,
-    });
-    replaceTask(updated);
-    toast("Task marked as completed.", "success");
-  } catch (error) {
-    handleAgentError(error);
-  }
-}
-
 async function deleteTask(task) {
   const connection = managedConnection(state.selectedId);
-  if (!connection) return;
-  if (!window.confirm(`Delete "${task.title}"? This cannot be undone.`)) return;
+  if (!connection) return false;
+  if (!window.confirm(`Delete "${task.title}"? This cannot be undone.`)) return false;
 
   try {
     await api(API.task(task.id), {
@@ -829,13 +858,16 @@ async function deleteTask(task) {
     renderHeader();
     updateCounts();
     toast("Task deleted.", "success");
+    return true;
   } catch (error) {
     handleAgentError(error);
+    return false;
   }
 }
 
 function handleAgentError(error) {
   if (error.status === 401) {
+    closeTaskDetail();
     const id = state.selectedId;
     if (id) forgetConnection(id);
     toast(
@@ -850,6 +882,7 @@ function handleAgentError(error) {
     return;
   }
   if (error.status === 404) {
+    closeTaskDetail();
     toast("That task no longer exists.", "error");
     loadTasks();
     return;
@@ -872,48 +905,54 @@ function emptyState(container, { title, message, actionLabel, onAction }) {
 }
 
 async function disconnectSelected() {
-  const connection = managedConnection(state.selectedId);
-  if (!connection) return;
+  const agent = state.agents.find(
+    (item) => item.connection_id === state.selectedId
+  );
+  if (!agent) return;
   if (
     !window.confirm(
-      `Disconnect "${connection.agent_name}"? Its token is revoked immediately. Tasks are preserved.`
+      `Disconnect "${agent.agent_name}"? Its token is revoked immediately. Tasks are preserved.`
     )
   ) {
     return;
   }
 
-  // Capture this before the request: the SSE event may clear the selection first.
-  const wasSelected = state.selectedId === connection.connection_id;
-
   try {
-    await api(API.disconnect, {
-      method: "POST",
-      token: connection.token,
-    });
+    await api(API.dashboardDisconnect(agent.connection_id), { method: "POST" });
   } catch (error) {
-    if (error.status !== 401) {
-      toast(error.message, "error", 6500);
+    if (error.status === 401) {
+      showLogin("Dashboard session expired. Unlock again.");
       return;
     }
+    if (error.status === 404) {
+      toast("That agent is no longer connected.", "error");
+      await refreshAgents();
+      return;
+    }
+    toast(error.message, "error", 6500);
+    return;
   }
 
-  forgetConnection(connection.connection_id);
+  forgetConnection(agent.connection_id);
+  closeTaskDetail();
+  if (state.selectedId === agent.connection_id) {
+    state.selectedId = null;
+    state.tasks = [];
+    state.loadingTasks = false;
+    sessionStorage.removeItem(SELECTED_KEY);
+  }
+
   toast("Agent disconnected. Its tasks were preserved.", "success");
-  await refreshAgents();
+
+  const agentsOk = await refreshAgents();
+  if (!agentsOk) return;
   await refreshActivity();
 
-  if (wasSelected && !state.selectedId) {
-    const nextManaged = state.managed.find((item) =>
-      state.agents.some((agent) => agent.connection_id === item.connection_id)
-    );
-    const next = nextManaged
-      ? nextManaged.connection_id
-      : state.agents[0]?.connection_id || null;
-    await selectAgent(next);
-  } else if (wasSelected) {
-    renderHeader();
-    renderTasks();
-  }
+  const nextManaged = state.managed.find((item) =>
+    state.agents.some((candidate) => candidate.connection_id === item.connection_id)
+  );
+  const next = nextManaged?.connection_id || state.agents[0]?.connection_id || null;
+  await selectAgent(next);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1065,6 +1104,7 @@ function openConnectModal() {
 }
 
 function openTaskModal(task) {
+  closeTaskDetail();
   const editing = Boolean(task);
   openModal({
     title: editing ? "Edit task" : "New task",
@@ -1368,6 +1408,20 @@ async function handleEvent(type, payload) {
     type === "task.deleted"
   ) {
     if (payload?.connection_id === state.selectedId) {
+      if (state.detailTaskId) {
+        if (
+          type === "task.updated" &&
+          payload.task?.id === state.detailTaskId
+        ) {
+          renderTaskDetail(payload.task);
+        }
+        if (
+          type === "task.deleted" &&
+          payload.task_id === state.detailTaskId
+        ) {
+          closeTaskDetail();
+        }
+      }
       scheduleTaskReload();
     }
     return;
@@ -1422,8 +1476,22 @@ function bindEvents() {
   dom.modalBackdrop.addEventListener("click", (event) => {
     if (event.target === dom.modalBackdrop) closeModal();
   });
+
+  dom.taskDetailClose.addEventListener("click", closeTaskDetail);
+  dom.taskDetailFooterClose.addEventListener("click", closeTaskDetail);
+  dom.taskDetailBackdrop.addEventListener("click", (event) => {
+    if (event.target === dom.taskDetailBackdrop) closeTaskDetail();
+  });
+  dom.taskDetailEdit.addEventListener("click", editTaskFromDetail);
+  dom.taskDetailDelete.addEventListener("click", deleteTaskFromDetail);
+
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !dom.modalBackdrop.classList.contains("hidden")) {
+    if (event.key !== "Escape") return;
+    if (!dom.taskDetailBackdrop.classList.contains("hidden")) {
+      closeTaskDetail();
+      return;
+    }
+    if (!dom.modalBackdrop.classList.contains("hidden")) {
       closeModal();
     }
   });

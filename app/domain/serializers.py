@@ -6,8 +6,8 @@ from typing import Any
 
 from bson import ObjectId
 
+from ..core.time import as_utc
 from .models import ActivityEntry, AgentInfo, Task
-from .utils import as_utc
 
 
 def _string_id(value: Any) -> str:

@@ -7,7 +7,7 @@
   <meta name="description" content="Agent Playground — an observable task environment for AI agents.">
   <title>Agent Playground</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%235eead4'/%3E%3Ctext x='32' y='42' font-family='Arial' font-size='26' font-weight='bold' text-anchor='middle' fill='%2304211e'%3EAP%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
   <noscript>
@@ -122,7 +122,7 @@
             <button id="readonly-connect-btn" class="btn btn-ghost btn-xs" type="button">Create connection</button>
           </div>
 
-          <div id="tasks-container" class="task-grid" aria-live="polite"></div>
+          <div id="tasks-container" class="kanban-board" aria-live="polite"></div>
         </section>
 
         <section id="activity-panel" class="panel hidden" role="tabpanel" aria-labelledby="tab-activity">
@@ -196,8 +196,42 @@
     </div>
   </div>
 
+  <!-- Task detail dialog -->
+  <div id="task-detail-backdrop" class="modal-backdrop hidden">
+    <div class="modal task-detail-modal" role="dialog" aria-modal="true" aria-labelledby="task-detail-title">
+      <div class="modal-head">
+        <h2 id="task-detail-title">Task</h2>
+        <button id="task-detail-close" class="icon-btn" type="button" aria-label="Close task details">×</button>
+      </div>
+      <div class="task-detail-body">
+        <div id="task-detail-badges" class="badges task-detail-badges"></div>
+        <p id="task-detail-id" class="task-detail-id"></p>
+        <p id="task-detail-description" class="task-detail-description"></p>
+        <dl class="task-detail-meta">
+          <div>
+            <dt>Created</dt>
+            <dd id="task-detail-created"></dd>
+          </div>
+          <div>
+            <dt>Updated</dt>
+            <dd id="task-detail-updated"></dd>
+          </div>
+        </dl>
+        <p id="task-detail-readonly" class="task-detail-readonly hidden">
+          Read-only environment. Create a connection in this browser to edit tasks.
+        </p>
+      </div>
+      <div class="modal-foot task-detail-foot">
+        <button id="task-detail-delete" class="btn btn-danger" type="button">Delete</button>
+        <span class="task-detail-spacer"></span>
+        <button id="task-detail-footer-close" class="btn btn-ghost" type="button">Close</button>
+        <button id="task-detail-edit" class="btn btn-primary" type="button">Edit</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="false"></div>
 
-  <script src="/static/app.js" defer></script>
+  <script src="/static/js/app.js" defer></script>
 </body>
 </html>

@@ -6,16 +6,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from ..config import Settings
-from ..dependencies import get_app_settings, get_broker, get_database
-from ..events import EventBroker
-from ..models import (
+from ...core.config import Settings
+from ...core.events import EventBroker
+from ...domain.models import (
     AgentInfo,
     ConnectResponse,
     DisconnectResponse,
     ErrorResponse,
 )
-from ..security import (
+from ...core.security import (
     AGENT_COOKIE_NAME,
     AuthContext,
     clear_agent_cookie,
@@ -23,14 +22,15 @@ from ..security import (
     require_auth,
     set_agent_cookie,
 )
-from ..serializers import serialize_connection
-from ..services import (
+from ...core.time import as_utc
+from ...domain.serializers import serialize_connection
+from ...domain.services import (
     InvalidAgentName,
     create_connection,
     normalize_agent_name,
     revoke_connection,
 )
-from ..utils import as_utc
+from ..dependencies import get_app_settings, get_broker, get_database
 
 router = APIRouter(tags=["Authentication"])
 

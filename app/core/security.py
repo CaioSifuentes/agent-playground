@@ -15,7 +15,7 @@ from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 
 from .config import Settings
-from .utils import utc_now
+from .time import utc_now
 
 AGENT_COOKIE_NAME = "agent_token"
 DASHBOARD_COOKIE_NAME = "dashboard_session"

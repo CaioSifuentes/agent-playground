@@ -13,9 +13,9 @@ def test_frontend_is_served(client):
     response = client.get("/")
     assert response.status_code == 200
     assert "Agent Playground" in response.text
-    assert "/static/app.js" in response.text
-    assert client.get("/static/styles.css").status_code == 200
-    assert client.get("/static/app.js").status_code == 200
+    assert "/static/js/app.js" in response.text
+    assert client.get("/static/css/styles.css").status_code == 200
+    assert client.get("/static/js/app.js").status_code == 200
 
 
 def test_openapi_documents_the_api(client):

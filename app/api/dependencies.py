@@ -6,8 +6,8 @@ from typing import Any
 
 from fastapi import Request
 
-from .config import Settings
-from .events import EventBroker
+from ..core.config import Settings
+from ..core.events import EventBroker
 
 
 def get_database(request: Request) -> Any:

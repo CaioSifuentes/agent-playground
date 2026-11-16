@@ -1,8 +1,9 @@
-"""Read-only dashboard API, protected by a separate dashboard session.
+"""Dashboard API, protected by a separate dashboard session.
 
 The dashboard session is deliberately *not* an agent token: it cannot mutate
-tasks. Task mutations always go through ``/api/tasks`` with the selected
-agent's own token, keeping agent isolation strict.
+tasks. It can read every agent environment and disconnect agents. Task writes
+always go through ``/api/tasks`` with the selected agent's own token, keeping
+agent isolation strict.
 """
 
 from __future__ import annotations
@@ -15,19 +16,9 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
-from ..config import Settings
-from ..dependencies import get_app_settings, get_broker, get_database
-from ..events import EventBroker
-from ..models import (
-    ActivityList,
-    AgentList,
-    DashboardLoginRequest,
-    DashboardSession,
-    DisconnectResponse,
-    ErrorResponse,
-    TaskList,
-)
-from ..security import (
+from ...core.config import Settings
+from ...core.events import EventBroker
+from ...core.security import (
     AGENT_COOKIE_NAME,
     clear_agent_cookie,
     create_dashboard_session,
@@ -39,14 +30,28 @@ from ..security import (
     clear_dashboard_cookie,
     verify_dashboard_session,
 )
-from ..serializers import serialize_activity, serialize_connection, serialize_task
-from ..services import (
+from ...domain.models import (
+    ActivityList,
+    AgentList,
+    DashboardLoginRequest,
+    DashboardSession,
+    DisconnectResponse,
+    ErrorResponse,
+    TaskList,
+)
+from ...domain.serializers import (
+    serialize_activity,
+    serialize_connection,
+    serialize_task,
+)
+from ...domain.services import (
     get_connection,
     list_active_connections,
     list_activity,
     list_tasks,
     revoke_connection,
 )
+from ..dependencies import get_app_settings, get_broker, get_database
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 

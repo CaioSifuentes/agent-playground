@@ -11,12 +11,13 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .activity import ActivityMiddleware
-from .config import Settings, load_settings
-from .db import MongoDatabase, ensure_indexes
-from .events import EventBroker
-from .models import HealthResponse
-from .routers import connections, dashboard, tasks
+from .api.routers import connections, dashboard, tasks
+from .core.config import Settings, load_settings
+from .core.events import EventBroker
+from .database.indexes import ensure_indexes
+from .database.mongo import MongoDatabase
+from .domain.models import HealthResponse
+from .middleware.activity import ActivityMiddleware
 
 logger = logging.getLogger("agent_playground")
 
@@ -50,9 +51,10 @@ read or modify another agent's tasks.
 
 ## Dashboard
 
-The read-only dashboard uses a separate password session
-(`DASHBOARD_PASSWORD`), not an agent token. Agent tokens therefore cannot be
-used to read another agent's tasks, even through the dashboard API.
+The dashboard uses a separate password session (`DASHBOARD_PASSWORD`), not an
+agent token. It can observe every agent environment and disconnect any agent,
+but it cannot mutate tasks. Task writes always use the selected agent's token,
+so one agent's token can never read another agent's tasks through the dashboard.
 
 ## Real-time
 

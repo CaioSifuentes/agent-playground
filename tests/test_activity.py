@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from urllib.parse import urlencode
 
-from app.activity import build_request_summary
+from app.middleware.activity import build_request_summary
 
 
 def _entries(client, query: str = "") -> list[dict]:

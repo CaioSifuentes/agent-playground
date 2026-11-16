@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.events import EventBroker
+from app.core.events import EventBroker
 from tests.conftest import connect_agent
 
 
@@ -72,6 +72,30 @@ def test_disconnect_publishes_event(client, app, agent):
 
 def test_sse_endpoint_requires_dashboard_session(client):
     assert client.get("/api/dashboard/events").status_code == 401
+
+
+def test_dashboard_disconnect_publishes_event(client, app, dashboard, agent):
+    connection, _ = agent("DashboardBye")
+    broker: EventBroker = app.state.broker
+    queue = broker.subscribe()
+    try:
+        response = client.post(
+            f"/api/dashboard/agents/{connection['connection_id']}/disconnect"
+        )
+        assert response.status_code == 200
+
+        messages = []
+        while not queue.empty():
+            messages.append(queue.get_nowait())
+        event = next(
+            message
+            for message in messages
+            if message["type"] == "agent.disconnected"
+        )
+        assert event["payload"]["connection_id"] == connection["connection_id"]
+        assert event["payload"]["agent_name"] == "DashboardBye"
+    finally:
+        broker.unsubscribe(queue)
 
 
 @pytest.mark.asyncio

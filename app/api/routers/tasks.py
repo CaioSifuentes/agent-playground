@@ -7,18 +7,18 @@ from typing import Any
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from ..dependencies import get_broker, get_database
-from ..events import EventBroker
-from ..models import ErrorResponse, Task, TaskCreate, TaskList, TaskUpdate
-from ..security import AuthContext, require_auth
-from ..serializers import serialize_task
-from ..services import (
+from ...core.events import EventBroker
+from ...core.security import AuthContext, require_auth
+from ...domain.models import ErrorResponse, Task, TaskCreate, TaskList, TaskUpdate
+from ...domain.serializers import serialize_task
+from ...domain.services import (
     create_task,
     delete_task,
     get_task,
     list_tasks,
     update_task,
 )
+from ..dependencies import get_broker, get_database
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
 
